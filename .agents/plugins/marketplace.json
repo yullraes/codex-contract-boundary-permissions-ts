@@ -1,0 +1,20 @@
+{
+  "name": "contract-boundary-permissions",
+  "interface": {
+    "displayName": "Contract Boundary Permissions"
+  },
+  "plugins": [
+    {
+      "name": "contract-boundary-permission-bundle",
+      "source": {
+        "source": "local",
+        "path": "./plugins/contract-boundary-permission-bundle"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "contract-boundary-permission-bundle",
+  "version": "0.1.0",
+  "description": "Codex skill bundle for setting up and validating contract-boundary filesystem permissions in JS/TS workspaces.",
+  "author": {
+    "name": "Contract Boundary Permissions"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "permissions",
+    "contract-boundary",
+    "js",
+    "typescript"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Contract Boundary Permissions",
+    "shortDescription": "Set up graph-derived Codex permission profiles",
+    "longDescription": "Adds a Codex skill for applying contract-boundary permission automation to JS/TS workspaces. The bundle includes Stop hook sources and deterministic scripts for generated freshness and permission validation, while hook activation remains a workspace-level setup step.",
+    "developerName": "Contract Boundary Permissions",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Set up contract-boundary Codex permissions in this workspace"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

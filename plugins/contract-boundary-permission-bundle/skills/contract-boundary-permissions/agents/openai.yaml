@@ -1,0 +1,4 @@
+interface:
+  display_name: "Contract Boundary Permissions"
+  short_description: "Set up Codex boundary permissions"
+  default_prompt: "Use $contract-boundary-permissions to set up and validate Codex boundary permission profiles."
