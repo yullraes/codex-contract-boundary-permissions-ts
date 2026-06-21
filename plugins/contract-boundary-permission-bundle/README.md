@@ -31,10 +31,10 @@ Plugin installation exposes the skill and source bundle. Target workspace setup 
 ## Included Components
 
 - `skills/contract-boundary-permissions`: the permission setup skill.
-- `hooks/`: Stop hook implementation and source hook config.
+- `hooks/`: Stop hook implementation for workspace-local activation.
 - `scripts/` and `src/`: deterministic tool primitives used by the skill and hook.
 
-Current Codex plugin manifest validation does not accept a top-level `hooks` field. Because of that, the plugin manifest exposes the skill, and the Stop hook is shipped as bundle content for workspace activation.
+The plugin manifest exposes the skill, and the Stop hook is shipped as bundle content for workspace activation. The bundle intentionally does not ship a plugin `hooks/hooks.json`, because Codex treats that file as a global hook candidate when the plugin is installed.
 
 ## Workspace Activation
 
