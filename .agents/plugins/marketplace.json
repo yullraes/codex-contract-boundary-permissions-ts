@@ -1,5 +1,5 @@
 {
-  "name": "contract-boundary-permissions",
+  "name": "contract-boundary-permissions-ts",
   "interface": {
     "displayName": "Contract Boundary Permissions"
   },

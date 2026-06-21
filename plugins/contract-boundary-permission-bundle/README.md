@@ -8,14 +8,14 @@ From a local checkout:
 
 ```powershell
 codex.cmd plugin marketplace add <repo-root>
-codex.cmd plugin add contract-boundary-permission-bundle@contract-boundary-permissions
+codex.cmd plugin add contract-boundary-permission-bundle@contract-boundary-permissions-ts
 ```
 
 From a Git marketplace:
 
 ```powershell
 codex.cmd plugin marketplace add https://github.com/<org>/<repo> --ref <tag-or-branch>
-codex.cmd plugin add contract-boundary-permission-bundle@contract-boundary-permissions
+codex.cmd plugin add contract-boundary-permission-bundle@contract-boundary-permissions-ts
 ```
 
 For a large repository, use sparse marketplace checkout paths:
