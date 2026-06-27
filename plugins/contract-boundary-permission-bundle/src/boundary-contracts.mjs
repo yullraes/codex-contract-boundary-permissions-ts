@@ -5,34 +5,6 @@ export const SCHEMA_VERSION = "0.2.0";
 export const README_FILE = "README.md";
 export const CONTRACT_DOC_EXTENSIONS = new Set([".md", ".mdx"]);
 export const PUBLIC_ARTIFACTS_KEY = "public_artifacts";
-export const CONTRACT_DOCUMENT_SECTION_HEADINGS = new Set([
-  "contracts",
-  "contract details",
-  "contract documents",
-  "public contract documents",
-  "public contracts",
-  "계약 문서",
-  "공개 계약 문서",
-]);
-export const EXTERNAL_CONTRACT_SECTION_HEADINGS = new Set([
-  "dependencies",
-  "external contracts",
-  "external contract dependencies",
-  "required contracts",
-  "uses",
-  "외부 계약",
-  "외부 계약 문서",
-  "외부 의존",
-  "의존 계약",
-]);
-export const PUBLIC_ARTIFACT_SECTION_HEADINGS = new Set([
-  "public artifacts",
-  "artifacts",
-  "public files",
-  "공개 artifact",
-  "공개 아티팩트",
-  "공개 파일",
-]);
 export const DEFAULT_EXCLUDED_DIRS = new Set([
   ".codex",
   ".git",
@@ -249,7 +221,7 @@ async function collectLinkedContractDocs({
 }) {
   const publicFiles = [];
   const seen = new Set([toWorkspacePath(workspace, documentPath)]);
-  const targets = extractMarkdownLinkTargetsFromSections(documentContent, CONTRACT_DOCUMENT_SECTION_HEADINGS);
+  const targets = extractMarkdownLinkTargets(documentContent);
 
   for (const target of targets) {
     if (!isLocalMarkdownTarget(target)) {
@@ -265,12 +237,6 @@ async function collectLinkedContractDocs({
     seen.add(relativeTarget);
 
     if (!isInside(boundaryRoot, targetPath)) {
-      diagnostics.push({
-        severity: "error",
-        code: "contract_doc_outside_boundary",
-        message: "Boundary contract document sections may only link contract documents inside the boundary root.",
-        path: relativeTarget,
-      });
       continue;
     }
 
@@ -281,7 +247,7 @@ async function collectLinkedContractDocs({
       diagnostics.push({
         severity: "error",
         code: "contract_doc_missing",
-        message: "Boundary contract document section links to a missing contract document.",
+        message: "Inline Markdown link points to a missing same-boundary contract document.",
         path: relativeTarget,
       });
       continue;
@@ -297,6 +263,10 @@ async function collectLinkedContractDocs({
         message: "Linked contract document must declare contract_scope frontmatter.",
         path: relativeTarget,
       });
+      continue;
+    }
+
+    if (contractScope === "boundary") {
       continue;
     }
 
@@ -341,7 +311,9 @@ async function collectPublicArtifacts({
   const seen = new Set();
   const entries = [
     ...frontmatterPublicArtifacts(frontmatter, workspace, documentPath, diagnostics),
-    ...extractMarkdownLinkTargetsFromSections(documentContent, PUBLIC_ARTIFACT_SECTION_HEADINGS),
+    ...extractMarkdownLinkTargets(documentContent)
+      .map((target) => stripMarkdownTargetSuffix(target.trim()))
+      .filter((target) => isLocalArtifactTarget(target) && !CONTRACT_DOC_EXTENSIONS.has(path.extname(target).toLowerCase())),
   ];
 
   for (const entry of entries) {
@@ -360,7 +332,7 @@ async function collectPublicArtifacts({
       diagnostics.push({
         severity: "error",
         code: "public_artifact_markdown",
-        message: "Markdown contract documents must be listed in contract document sections and declare contract_scope instead of being public artifacts.",
+        message: "Markdown files are contract links; declare contract_scope instead of listing them as public artifacts.",
         path: toWorkspacePath(workspace, documentPath),
       });
       continue;
@@ -458,7 +430,8 @@ async function collectBoundaryDependencies({
   const dependencyNames = new Set();
   const links = [];
   const seenTargets = new Set();
-  const targets = extractMarkdownLinkTargetsFromSections(documentContent, EXTERNAL_CONTRACT_SECTION_HEADINGS);
+  const boundaryRoot = path.dirname(documentPath);
+  const targets = extractMarkdownLinkTargets(documentContent);
 
   for (const target of targets) {
     if (!isLocalMarkdownTarget(target)) {
@@ -473,6 +446,25 @@ async function collectBoundaryDependencies({
     }
     seenTargets.add(relativeTarget);
 
+    const targetBoundary = findBoundaryForPublicTarget(boundaries, relativeTarget);
+    if (targetBoundary?.name === boundary.name) {
+      continue;
+    }
+
+    if (targetBoundary) {
+      if (!targetBoundary.name) {
+        continue;
+      }
+
+      dependencyNames.add(targetBoundary.name);
+      links.push({ boundary: targetBoundary.name, path: relativeTarget });
+      continue;
+    }
+
+    if (isInside(boundaryRoot, targetPath)) {
+      continue;
+    }
+
     let stats;
     try {
       stats = await fs.stat(targetPath);
@@ -480,7 +472,7 @@ async function collectBoundaryDependencies({
       diagnostics.push({
         severity: "error",
         code: "boundary_dependency_missing",
-        message: "External contract section links to a missing contract document.",
+        message: "Inline Markdown link points to a missing external contract document.",
         path: relativeTarget,
       });
       continue;
@@ -490,39 +482,18 @@ async function collectBoundaryDependencies({
       diagnostics.push({
         severity: "error",
         code: "boundary_dependency_not_file",
-        message: "External contract section must link to contract document files.",
+        message: "Inline Markdown link to an external contract must point to a file.",
         path: relativeTarget,
       });
       continue;
     }
 
-    const targetBoundary = findBoundaryForPublicTarget(boundaries, relativeTarget);
-    if (!targetBoundary) {
-      diagnostics.push({
-        severity: "error",
-        code: "boundary_dependency_unknown",
-        message: "External contract section links to a document that is not another boundary entrypoint or public contract document.",
-        path: relativeTarget,
-      });
-      continue;
-    }
-
-    if (targetBoundary.name === boundary.name) {
-      diagnostics.push({
-        severity: "warning",
-        code: "boundary_dependency_self",
-        message: "External contract section links to its own boundary; self dependency is ignored.",
-        path: relativeTarget,
-      });
-      continue;
-    }
-
-    if (!targetBoundary.name) {
-      continue;
-    }
-
-    dependencyNames.add(targetBoundary.name);
-    links.push({ boundary: targetBoundary.name, path: relativeTarget });
+    diagnostics.push({
+      severity: "error",
+      code: "boundary_dependency_unknown",
+      message: "Inline Markdown link points outside the boundary but is not another boundary entrypoint or public contract document.",
+      path: relativeTarget,
+    });
   }
 
   return {
@@ -569,62 +540,6 @@ function extractMarkdownLinkTargets(content) {
   }
 
   return targets;
-}
-
-function extractMarkdownLinkTargetsFromSections(content, headings) {
-  const targets = [];
-  const lines = content.split(/\r?\n/);
-  let activeLevel = null;
-  let activeContent = [];
-
-  function flush() {
-    if (activeLevel === null) {
-      return;
-    }
-    targets.push(...extractMarkdownLinkTargets(activeContent.join("\n")));
-    activeContent = [];
-  }
-
-  for (const line of lines) {
-    const heading = parseAtxHeading(line);
-    if (heading) {
-      if (activeLevel !== null && heading.level <= activeLevel) {
-        flush();
-        activeLevel = null;
-      }
-
-      if (activeLevel === null && headings.has(normalizeHeadingText(heading.text))) {
-        activeLevel = heading.level;
-        activeContent = [];
-      } else if (activeLevel !== null) {
-        activeContent.push(line);
-      }
-      continue;
-    }
-
-    if (activeLevel !== null) {
-      activeContent.push(line);
-    }
-  }
-
-  flush();
-  return targets;
-}
-
-function parseAtxHeading(line) {
-  const match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    level: match[1].length,
-    text: match[2],
-  };
-}
-
-function normalizeHeadingText(value) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeMarkdownLinkTarget(rawTarget) {

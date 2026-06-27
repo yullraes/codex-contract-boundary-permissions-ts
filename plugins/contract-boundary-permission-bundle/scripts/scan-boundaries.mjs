@@ -76,8 +76,8 @@ Scans Markdown frontmatter and emits contract boundary metadata.
 
 Contract participation is opt-in:
 - Any .md/.mdx document with contract_scope: boundary is a boundary entrypoint.
-- contract_scope: public/internal documents participate when linked from boundary contract sections.
-- External boundary dependencies are read from body links under External Contracts / Dependencies sections.
+- contract_scope: public/internal documents participate when linked from boundary entrypoint inline links.
+- External boundary dependencies are read from boundary entrypoint inline links; no special heading is required.
 
 Frontmatter:
   ---

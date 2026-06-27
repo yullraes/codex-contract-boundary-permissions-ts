@@ -5,16 +5,16 @@ Read this only when applying contract-boundary Codex permission automation to an
 ## Preconditions
 
 - Boundary entrypoint documents declare `contract_scope: boundary` and `name`.
-- Public contract documents linked from boundary contract sections declare `contract_scope: public`.
+- Public contract documents linked from boundary entrypoint inline links declare `contract_scope: public`.
 - Internal documents declare `contract_scope: internal`.
-- External dependencies are linked from body sections such as `External Contracts` or `Dependencies`.
+- External dependencies are linked from boundary entrypoint inline links; no special heading is required.
 - The target project owns its public entrypoint/deep import policy through lint/review/CI.
 
 Frontmatter 없는 Markdown은 즉시 error가 아닙니다. It remains legacy/unclassified and does not participate in the contract graph.
 
-Missing frontmatter becomes an error only when a boundary document links that Markdown file from a contract section such as `Contract Documents`, `Contracts`, or `Public Contract Documents`. A document referenced as a contract must explicitly declare `contract_scope`.
+Missing frontmatter becomes an error when a boundary entrypoint inline-links a same-boundary Markdown file. A Markdown document referenced as a contract must explicitly declare `contract_scope`.
 
-Post-implementation contract document updates are not part of this permission setup skill. Implementation sessions should follow the target project's own prompt/review/check guidance when deciding whether a changed Markdown document needs `contract_scope` or updated body links.
+Post-implementation contract document updates are not part of this permission setup skill. Implementation sessions should follow the target project's own prompt/review/check guidance when deciding whether a changed Markdown document needs `contract_scope` or updated inline links.
 
 ## Execution Model
 
@@ -63,7 +63,11 @@ Add `--default-boundary <name>` only when the default profile is explicitly chos
 node <tool-root>/src/validate-codex-permissions.ts <workspace> --graph <workspace>/.codex/dependency-graph.json --config <workspace>/.codex/config.toml
 ```
 
-6. Install the rendered pre-commit hook into the target repository `.git/hooks/pre-commit`.
+6. Optionally ask the target repo agent to add per-profile Codex entry scripts.
+
+For repositories with several generated profiles, small repo-owned launchers such as `.sh` or `.ps1` files can make the intended boundary explicit. They should select the desired generated permission profile, for example `agent-order`, through that repo's normal Codex entry mechanism. Keep these launchers aligned with active `.codex/config.toml`; this bundle does not generate or validate them.
+
+7. Install the rendered pre-commit hook into the target repository `.git/hooks/pre-commit`.
 
 ## Notes
 

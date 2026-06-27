@@ -10,8 +10,8 @@ This skill is the permission setup entrypoint for the Contract Boundary Permissi
 The source of truth is the Markdown contract graph:
 
 - `contract_scope: boundary` documents define boundary entrypoints.
-- public/internal contract docs are linked from boundary contract sections.
-- external dependency boundaries are linked from `External Contracts` / `Dependencies` sections.
+- public/internal contract docs are linked from boundary entrypoint inline links.
+- external dependency boundaries are linked from boundary entrypoint inline links, with the target frontmatter deciding the boundary.
 
 This skill is for permission setup. General implementation guidance and post-implementation contract document updates belong to the target project's implementation-agent prompt, review process, hook output, or check scripts. The paired pre-commit hook performs generated metadata and config consistency checks in fail-only mode.
 

@@ -11,7 +11,7 @@ Lead with findings.
 - Only owner boundaries are writable.
 - External boundary roots are denied by default.
 - No external path is reopened except direct dependency `contractFiles` and `publicArtifacts`.
-- Direct dependencies come from boundary document body links, not hidden frontmatter lists.
+- Direct dependencies come from boundary entrypoint inline links, not hidden frontmatter lists.
 - `.codex` and sensitive globs are not loosened.
 - No `danger-full-access` posture is introduced.
 
