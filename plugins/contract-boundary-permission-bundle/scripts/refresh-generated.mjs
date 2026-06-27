@@ -101,7 +101,7 @@ Modes:
   --check   Regenerate into a temporary directory and compare with .codex outputs.
   --write   Refresh .codex/boundaries.json, .codex/dependency-graph.json, and .codex/rules/generated.rules.
 
-The script intentionally rebuilds the full JS/TS dependency graph in v1.
+The script rebuilds the Markdown-declared contract graph in v1.
 It never edits active .codex/config.toml.
 `);
 }
@@ -116,7 +116,7 @@ function resolveOutputs(workspace) {
 
 async function writeGeneratedOutputs(workspace, outputs) {
   await runNode("scripts/scan-boundaries.mjs", [workspace, "--out", outputs.boundaries]);
-  await runNode("src/analyze-js-ts-imports.ts", [workspace, "--out", outputs.graph]);
+  await runNode("scripts/scan-boundaries.mjs", [workspace, "--out", outputs.graph]);
   await runNode("src/generate-codex-rules.ts", [
     workspace,
     "--graph",
@@ -137,7 +137,7 @@ async function checkGeneratedOutputs(workspace, outputs) {
 
   try {
     await runNode("scripts/scan-boundaries.mjs", [workspace, "--out", tempOutputs.boundaries]);
-    await runNode("src/analyze-js-ts-imports.ts", [workspace, "--out", tempOutputs.graph]);
+    await runNode("scripts/scan-boundaries.mjs", [workspace, "--out", tempOutputs.graph]);
     await runNode("src/generate-codex-rules.ts", [
       workspace,
       "--graph",
@@ -148,7 +148,7 @@ async function checkGeneratedOutputs(workspace, outputs) {
 
     const stale = [
       ...await compareJsonOutput("boundaries", outputs.boundaries, tempOutputs.boundaries),
-      ...await compareJsonOutput("dependency graph", outputs.graph, tempOutputs.graph),
+      ...await compareJsonOutput("contract graph", outputs.graph, tempOutputs.graph),
       ...await compareTextOutput("rules", outputs.rules, tempOutputs.rules, normalizeRulesText),
     ];
 
@@ -225,7 +225,7 @@ function sortJson(value) {
 
 function normalizeRulesText(text) {
   return normalizeLineEndings(text)
-    .replace(/^# Source graph:.*$/m, "# Source graph: <generated-check-graph>")
+    .replace(/^# Source contract graph:.*$/m, "# Source contract graph: <generated-check-graph>")
     .trimEnd();
 }
 
@@ -299,3 +299,5 @@ main().catch((error) => {
   process.stderr.write(`${error.message}\n`);
   process.exitCode = 1;
 });
+
+

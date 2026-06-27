@@ -1,16 +1,20 @@
 # Setup
 
-Read this only when applying contract-boundary Codex permission automation to an existing JS/TS workspace.
+Read this only when applying contract-boundary Codex permission automation to an existing workspace.
 
 ## Preconditions
 
-- Each responsibility boundary root has a `README.md`.
-- Boundary README frontmatter declares `contract_scope: boundary` and `name`.
-- Public contract documents linked from a boundary README declare `contract_scope: public`.
+- Boundary entrypoint documents declare `contract_scope: boundary` and `name`.
+- Public contract documents linked from boundary contract sections declare `contract_scope: public`.
 - Internal documents declare `contract_scope: internal`.
-- The workspace's dependency graph can be described from JS/TS imports.
-- The target workspace provides TypeScript resolution for the analyzer.
-- The target project lint command owns public entrypoint and deep import policy.
+- External dependencies are linked from body sections such as `External Contracts` or `Dependencies`.
+- The target project owns its public entrypoint/deep import policy through lint/review/CI.
+
+Frontmatter 없는 Markdown은 즉시 error가 아닙니다. It remains legacy/unclassified and does not participate in the contract graph.
+
+Missing frontmatter becomes an error only when a boundary document links that Markdown file from a contract section such as `Contract Documents`, `Contracts`, or `Public Contract Documents`. A document referenced as a contract must explicitly declare `contract_scope`.
+
+Post-implementation contract document updates are not part of this permission setup skill. Implementation sessions should follow the target project's own prompt/review/check guidance when deciding whether a changed Markdown document needs `contract_scope` or updated body links.
 
 ## Execution Model
 
@@ -20,43 +24,22 @@ Before running setup commands, wire the primitives into the target workspace wit
 
 ```text
 <workspace>/.codex/tools/contract-boundary-permissions/
-  hooks/stop-checks.mjs
+  hooks/pre-commit.mjs
   scripts/
   src/
 ```
 
 In the commands below, `<tool-root>` means `<workspace>/.codex/tools/contract-boundary-permissions`.
 
-Optional target `package.json` scripts may point at `<tool-root>`:
-
-```json
-{
-  "scripts": {
-    "scan:boundaries": "node .codex/tools/contract-boundary-permissions/scripts/scan-boundaries.mjs",
-    "analyze:imports": "node .codex/tools/contract-boundary-permissions/src/analyze-js-ts-imports.ts",
-    "refresh:generated": "node .codex/tools/contract-boundary-permissions/scripts/refresh-generated.mjs",
-    "check:generated": "node .codex/tools/contract-boundary-permissions/scripts/refresh-generated.mjs --check",
-    "generate:permissions": "node .codex/tools/contract-boundary-permissions/src/generate-codex-permissions.ts",
-    "generate:rules": "node .codex/tools/contract-boundary-permissions/src/generate-codex-rules.ts",
-    "validate:permissions": "node .codex/tools/contract-boundary-permissions/src/validate-codex-permissions.ts",
-    "hook:contract-boundary-stop": "node .codex/tools/contract-boundary-permissions/hooks/stop-checks.mjs"
-  }
-}
-```
-
-If these scripts are not present, run the direct `node <tool-root>/...` commands shown below.
-
 ## Steps
 
-1. Check boundary contract state.
+1. Check contract graph state.
 
 ```text
 node <tool-root>/scripts/scan-boundaries.mjs <workspace> --pretty
 ```
 
-2. Run the target project's lint command when one is available. This bundle does not create or replace import policy.
-
-3. Generate graph and generated metadata.
+2. Generate graph and generated metadata.
 
 ```text
 node <tool-root>/scripts/refresh-generated.mjs <workspace> --write
@@ -64,7 +47,7 @@ node <tool-root>/scripts/refresh-generated.mjs <workspace> --write
 
 This refreshes `.codex/boundaries.json`, `.codex/dependency-graph.json`, and `.codex/rules/generated.rules`. It does not edit `.codex/config.toml`.
 
-4. Generate the permission candidate.
+3. Generate the permission candidate.
 
 ```text
 node <tool-root>/src/generate-codex-permissions.ts <workspace> --graph <workspace>/.codex/dependency-graph.json --out <workspace>/.codex/generated-permissions.toml
@@ -72,27 +55,22 @@ node <tool-root>/src/generate-codex-permissions.ts <workspace> --graph <workspac
 
 Add `--default-boundary <name>` only when the default profile is explicitly chosen.
 
-5. Merge `.codex/generated-permissions.toml` into active `.codex/config.toml` using `permissions.md`.
+4. Merge `.codex/generated-permissions.toml` into active `.codex/config.toml` using `permissions.md`.
 
-6. Validate the merged config.
+5. Validate the merged config.
 
 ```text
 node <tool-root>/src/validate-codex-permissions.ts <workspace> --graph <workspace>/.codex/dependency-graph.json --config <workspace>/.codex/config.toml
 ```
 
-7. Activate the Stop hook by merging the hook config for the target Codex surface.
-
-The bundled hook config points at:
-
-```text
-<workspace>/.codex/tools/contract-boundary-permissions/hooks/stop-checks.mjs
-```
-
-The hook also receives `--tool-root <workspace>/.codex/tools/contract-boundary-permissions` so it does not depend on plugin cache paths.
+6. Install the rendered pre-commit hook into the target repository `.git/hooks/pre-commit`.
 
 ## Notes
 
 - Generated permission TOML is a candidate, not active config.
 - Preserve existing model, MCP, hooks, and user-defined settings in `.codex/config.toml`.
-- The paired `Stop` hook later checks generated freshness, contract scan diagnostics, and active config validation in fail-only mode.
+- The paired pre-commit hook checks generated freshness, contract scan diagnostics, and active config validation in fail-only mode before commit.
 - Do not instruct users to run setup from `npm --prefix <plugin-cache>`; that path is not the target workspace runtime.
+
+
+

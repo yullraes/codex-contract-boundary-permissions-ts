@@ -6,18 +6,6 @@ import process from "node:process";
 
 type Access = "read" | "write" | "deny";
 type DiagnosticSeverity = "error" | "warning";
-type FileKind = "source" | "test" | "config";
-type ImportKind =
-  | "import"
-  | "type-import"
-  | "export"
-  | "type-export"
-  | "dynamic-import"
-  | "require"
-  | "dynamic-unknown"
-  | "require-unknown"
-  | "workspace-package-dependency";
-
 type CliArgs = {
   workspace?: string;
   graph?: string;
@@ -25,7 +13,6 @@ type CliArgs = {
   defaultBoundary?: string;
   allowGraphErrors: boolean;
   allowRootBoundary: boolean;
-  strictDynamic: boolean;
   json: boolean;
 };
 
@@ -42,47 +29,15 @@ type Boundary = {
   readme: string;
   contractFiles?: string[];
   publicArtifacts?: string[];
+  dependencies?: string[];
   contractScope: string;
   metadata?: Record<string, unknown>;
 };
 
-type BoundaryEdge = {
-  from: string;
-  to: string;
-  imports?: {
-    from: string;
-    to: string;
-    kind: ImportKind;
-    fromFileKind?: FileKind;
-    specifier: string | null;
-  }[];
-};
-
-type ImportEdge = {
-  from: string;
-  to: string | null;
-  kind: ImportKind;
-  fromFileKind?: FileKind;
-  fromBoundary: string | null;
-  toBoundary: string | null;
-  confidence?: "high" | "low";
-};
-
-type GraphFile = {
-  path: string;
-  kind: FileKind;
-  boundary: string | null;
-  boundaryRoot: string | null;
-};
-
 type DependencyGraph = {
   schemaVersion?: string;
-  analyzer?: string;
   workspace?: string;
   boundaries: Boundary[];
-  files?: GraphFile[];
-  edges?: ImportEdge[];
-  boundaryEdges: BoundaryEdge[];
   diagnostics?: Diagnostic[];
 };
 
@@ -154,7 +109,6 @@ function parseArgs(argv: string[]): CliArgs {
     defaultBoundary: undefined,
     allowGraphErrors: false,
     allowRootBoundary: false,
-    strictDynamic: false,
     json: false,
   };
 
@@ -201,11 +155,6 @@ function parseArgs(argv: string[]): CliArgs {
       continue;
     }
 
-    if (arg === "--strict-dynamic") {
-      args.strictDynamic = true;
-      continue;
-    }
-
     if (arg === "--json") {
       args.json = true;
       continue;
@@ -237,12 +186,11 @@ Semantically validates that a Codex config.toml contains graph-derived
 boundary permission profiles.
 
 Options:
-  --graph <path>              Dependency graph JSON. Defaults to <workspace>/.codex/dependency-graph.json.
+  --graph <path>              Contract graph JSON. Defaults to <workspace>/.codex/dependency-graph.json.
   --config <path>             Codex config TOML. Defaults to <workspace>/.codex/config.toml.
   --default-boundary <name>   Require default_permissions to match this boundary's generated profile.
   --allow-graph-errors        Do not fail on graph diagnostics that are errors.
   --allow-root-boundary       Allow a boundary whose root is ".".
-  --strict-dynamic            Treat unknown dynamic dependency warnings as errors.
   --json                      Emit JSON diagnostics.
   -h, --help                  Show this help.
 `);
@@ -750,19 +698,12 @@ function validateGraph(graph: DependencyGraph, args: CliArgs): Diagnostic[] {
     diagnostics.push({
       severity: "error",
       code: "no_boundaries",
-      message: "Dependency graph does not contain any boundaries.",
+      message: "Contract graph does not contain any boundaries.",
       path: ".",
     });
   }
 
-  if (!Array.isArray(graph.boundaryEdges)) {
-    diagnostics.push({
-      severity: "error",
-      code: "missing_boundary_edges",
-      message: "Dependency graph is missing boundaryEdges.",
-      path: ".",
-    });
-  }
+
 
   const names = new Set<string>();
   for (const boundary of graph.boundaries ?? []) {
@@ -810,7 +751,7 @@ function validateGraph(graph: DependencyGraph, args: CliArgs): Diagnostic[] {
         diagnostics.push({
           severity: "error",
           code: "boundary_readme_missing_from_contract_files",
-          message: "Boundary contractFiles must include the boundary README.",
+          message: "Boundary contractFiles must include the boundary entrypoint document.",
           path: boundary.readme,
         });
       }
@@ -839,34 +780,20 @@ function validateGraph(graph: DependencyGraph, args: CliArgs): Diagnostic[] {
     }
   }
 
-  for (const edge of graph.boundaryEdges ?? []) {
-    if (!names.has(edge.from)) {
-      diagnostics.push({
-        severity: "error",
-        code: "unknown_boundary_edge_from",
-        message: `Boundary edge references unknown source boundary '${edge.from}'.`,
-        path: ".",
-      });
+  for (const boundary of graph.boundaries ?? []) {
+    if (!boundary.name || !Array.isArray(boundary.dependencies)) {
+      continue;
     }
 
-    if (!names.has(edge.to)) {
-      diagnostics.push({
-        severity: "error",
-        code: "unknown_boundary_edge_to",
-        message: `Boundary edge references unknown target boundary '${edge.to}'.`,
-        path: ".",
-      });
-    }
-  }
-
-  for (const edge of graph.edges ?? []) {
-    if ((edge.kind === "dynamic-unknown" || edge.kind === "require-unknown") && edge.fromBoundary) {
-      diagnostics.push({
-        severity: args.strictDynamic ? "error" : "warning",
-        code: "unknown_dynamic_dependency",
-        message: `Unknown dynamic dependency in boundary '${edge.fromBoundary}' may make generated permissions incomplete.`,
-        path: edge.from,
-      });
+    for (const dependencyName of dependencyNamesForBoundary(boundary)) {
+      if (!names.has(dependencyName)) {
+        diagnostics.push({
+          severity: "error",
+          code: "unknown_declared_dependency",
+          message: `Boundary '${boundary.name}' declares unknown contract dependency '${dependencyName}'.`,
+          path: boundary.readme ?? ".",
+        });
+      }
     }
   }
 
@@ -911,7 +838,7 @@ function validateConfig(graph: DependencyGraph, config: TomlTable, args: CliArgs
       diagnostics.push({
         severity: "error",
         code: "default_boundary_unknown",
-        message: `--default-boundary '${args.defaultBoundary}' is not present in the dependency graph.`,
+        message: `--default-boundary '${args.defaultBoundary}' is not present in the contract graph.`,
         path: "default_permissions",
       });
     } else if (config.default_permissions !== expectedDefault.name) {
@@ -1233,26 +1160,12 @@ function pathSpecificity(rulePath: string): number {
 function buildExpectedProfiles(graph: DependencyGraph): ExpectedProfile[] {
   const boundaries = [...graph.boundaries].sort((left, right) => safeName(left).localeCompare(safeName(right)));
   const byName = new Map(boundaries.map((boundary) => [safeName(boundary), boundary]));
-  const depsByBoundary = new Map<string, Set<string>>();
-
-  for (const boundary of boundaries) {
-    depsByBoundary.set(safeName(boundary), new Set());
-  }
-
-  for (const edge of graph.boundaryEdges ?? []) {
-    if (edge.from === edge.to) {
-      continue;
-    }
-
-    depsByBoundary.get(edge.from)?.add(edge.to);
-  }
-
   const usedProfileNames = new Map<string, number>();
 
   return boundaries.map((boundary) => {
     const boundaryName = safeName(boundary);
     const profileName = uniqueProfileName(`agent-${slugify(boundaryName)}`, usedProfileNames);
-    const dependencies = [...(depsByBoundary.get(boundaryName) ?? [])]
+    const dependencies = dependencyNamesForBoundary(boundary)
       .map((name) => byName.get(name))
       .filter((item): item is Boundary => Boolean(item))
       .sort((left, right) => safeName(left).localeCompare(safeName(right)));
@@ -1278,6 +1191,10 @@ function publicArtifactsForBoundary(boundary: Boundary): string[] {
 
 function readableFilesForBoundary(boundary: Boundary): string[] {
   return [...new Set([...contractFilesForBoundary(boundary), ...publicArtifactsForBoundary(boundary)])];
+}
+
+function dependencyNamesForBoundary(boundary: Boundary): string[] {
+  return [...new Set((boundary.dependencies ?? []).filter((name): name is string => typeof name === "string" && name.length > 0))];
 }
 
 function asTable(value: unknown): TomlTable | null {
@@ -1367,3 +1284,5 @@ main().catch((error: unknown) => {
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
 });
+
+

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -36,10 +36,10 @@ async function main() {
   const configPath = path.resolve(args.config ?? path.join(codexDir, "config.toml"));
   const hasGraph = await fileExists(graphPath);
   const hasConfig = await fileExists(configPath);
-  const hasBoundary = await hasBoundaryReadme(workspace);
+  const hasBoundary = await hasBoundaryContractDocument(workspace);
 
   if (!hasBoundary && !hasGraph && !hasConfig) {
-    process.stdout.write("Contract-boundary permission hook: no boundary workspace detected; skipping.\n");
+    process.stdout.write("Contract-boundary permission pre-commit hook: no boundary workspace detected; skipping.\n");
     return;
   }
 
@@ -62,7 +62,7 @@ async function main() {
     failures.push(formatFailure({
       title: "Contract document scan failed",
       detail: commandOutput(scan),
-      recovery: `Fix README/frontmatter diagnostics, then run: npm run scan:boundaries -- ${quoteIfNeeded(workspaceArg)} --pretty`,
+      recovery: `Fix contract document/frontmatter diagnostics, then run: npm run scan:boundaries -- ${quoteIfNeeded(workspaceArg)} --pretty`,
     }));
   }
 
@@ -109,7 +109,7 @@ async function main() {
     return fail(failures);
   }
 
-  process.stdout.write("Contract-boundary permission hook checks passed.\n");
+  process.stdout.write("Contract-boundary permission pre-commit hook checks passed.\n");
 }
 
 function parseArgs(argv) {
@@ -159,7 +159,7 @@ function parseArgs(argv) {
     }
 
     if (arg === "--help" || arg === "-h") {
-      process.stdout.write("Usage: node stop-checks.mjs [--workspace path] [--graph path] [--config path] [--tool-root path]\n");
+      process.stdout.write("Usage: node pre-commit.mjs [--workspace path] [--graph path] [--config path] [--tool-root path]\n");
       process.exit(0);
     }
 
@@ -249,7 +249,7 @@ async function hasRequiredPrimitives(candidate) {
   return true;
 }
 
-async function hasBoundaryReadme(workspace) {
+async function hasBoundaryContractDocument(workspace) {
   let found = false;
 
   async function visit(directory) {
@@ -278,7 +278,7 @@ async function hasBoundaryReadme(workspace) {
         continue;
       }
 
-      if (entry.isFile() && entry.name === "README.md" && await readmeDeclaresBoundary(absolutePath)) {
+      if (entry.isFile() && isMarkdownDocument(entry.name) && await documentDeclaresBoundary(absolutePath)) {
         found = true;
         return;
       }
@@ -289,7 +289,11 @@ async function hasBoundaryReadme(workspace) {
   return found;
 }
 
-async function readmeDeclaresBoundary(readmePath) {
+function isMarkdownDocument(fileName) {
+  return fileName.endsWith(".md") || fileName.endsWith(".mdx");
+}
+
+async function documentDeclaresBoundary(readmePath) {
   const content = await fs.readFile(readmePath, "utf8");
   const normalized = content.replace(/^\uFEFF/, "");
   const lines = normalized.split(/\r?\n/);
@@ -370,7 +374,7 @@ function formatFailure({ title, detail, recovery }) {
 }
 
 function fail(failures) {
-  process.stderr.write("Contract-boundary permission Stop hook failed.\n\n");
+  process.stderr.write("Contract-boundary permission pre-commit hook failed.\n\n");
   process.stderr.write(failures.join("\n\n---\n\n"));
   process.stderr.write("\n");
   process.exitCode = 1;
@@ -393,3 +397,5 @@ main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });
+
+

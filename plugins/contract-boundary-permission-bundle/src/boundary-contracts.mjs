@@ -1,10 +1,38 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = "0.1.0";
+export const SCHEMA_VERSION = "0.2.0";
 export const README_FILE = "README.md";
 export const CONTRACT_DOC_EXTENSIONS = new Set([".md", ".mdx"]);
 export const PUBLIC_ARTIFACTS_KEY = "public_artifacts";
+export const CONTRACT_DOCUMENT_SECTION_HEADINGS = new Set([
+  "contracts",
+  "contract details",
+  "contract documents",
+  "public contract documents",
+  "public contracts",
+  "계약 문서",
+  "공개 계약 문서",
+]);
+export const EXTERNAL_CONTRACT_SECTION_HEADINGS = new Set([
+  "dependencies",
+  "external contracts",
+  "external contract dependencies",
+  "required contracts",
+  "uses",
+  "외부 계약",
+  "외부 계약 문서",
+  "외부 의존",
+  "의존 계약",
+]);
+export const PUBLIC_ARTIFACT_SECTION_HEADINGS = new Set([
+  "public artifacts",
+  "artifacts",
+  "public files",
+  "공개 artifact",
+  "공개 아티팩트",
+  "공개 파일",
+]);
 export const DEFAULT_EXCLUDED_DIRS = new Set([
   ".codex",
   ".git",
@@ -19,7 +47,7 @@ export const DEFAULT_EXCLUDED_DIRS = new Set([
   "out",
 ]);
 
-export async function findReadmes(root) {
+export async function findMarkdownDocuments(root) {
   const results = [];
 
   async function visit(directory) {
@@ -35,7 +63,7 @@ export async function findReadmes(root) {
         continue;
       }
 
-      if (entry.isFile() && entry.name === README_FILE) {
+      if (entry.isFile() && CONTRACT_DOC_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         results.push(absolutePath);
       }
     }
@@ -46,18 +74,35 @@ export async function findReadmes(root) {
   return results;
 }
 
-export async function scanBoundaryContracts(workspace, readmes) {
-  const contracts = [];
+export async function findReadmes(root) {
+  const documents = await findMarkdownDocuments(root);
+  return documents.filter((documentPath) => path.basename(documentPath) === README_FILE);
+}
+
+export async function scanBoundaryContracts(workspace, documents) {
+  const records = [];
+  const contractsByPath = new Map();
   const boundaries = [];
   const diagnostics = [];
 
-  for (const readmePath of readmes) {
-    const content = await fs.readFile(readmePath, "utf8");
+  for (const documentPath of documents) {
+    const content = await fs.readFile(documentPath, "utf8");
     const frontmatter = parseFrontmatter(content);
     const contractScope = frontmatter?.contract_scope ?? null;
-    const relativeReadme = toWorkspacePath(workspace, readmePath);
-    const rootPath = path.dirname(readmePath);
+    const relativePath = toWorkspacePath(workspace, documentPath);
+    const rootPath = path.dirname(documentPath);
     const relativeRoot = toWorkspacePath(workspace, rootPath);
+
+    const record = {
+      absolutePath: documentPath,
+      content,
+      frontmatter,
+      contractScope,
+      relativePath,
+      rootPath,
+      relativeRoot,
+    };
+    records.push(record);
 
     if (!frontmatter || !contractScope) {
       continue;
@@ -67,68 +112,114 @@ export async function scanBoundaryContracts(workspace, readmes) {
       contractScope,
       name: typeof frontmatter.name === "string" ? frontmatter.name : null,
       root: relativeRoot,
-      readme: relativeReadme,
-      path: relativeReadme,
+      readme: relativePath,
+      path: relativePath,
       metadata: frontmatter,
     };
-    contracts.push(contract);
+    addContract(contractsByPath, contract);
 
     if (contractScope === "boundary") {
       if (!contract.name) {
         diagnostics.push({
           severity: "error",
           code: "boundary_name_missing",
-          message: "Boundary README must declare a non-empty name.",
-          path: relativeReadme,
+          message: "Boundary contract document must declare a non-empty name.",
+          path: relativePath,
         });
       }
-
-      const linked = await collectLinkedContractDocs({
-        workspace,
-        boundaryRoot: rootPath,
-        readmePath,
-        readmeContent: content,
-        boundaryName: contract.name,
-        diagnostics,
-      });
-      const publicArtifacts = await collectPublicArtifacts({
-        workspace,
-        boundaryRoot: rootPath,
-        readmePath,
-        frontmatter,
-        diagnostics,
-      });
-      contracts.push(...linked.contracts);
 
       boundaries.push({
         name: contract.name,
         root: relativeRoot,
-        readme: relativeReadme,
-        contractFiles: [relativeReadme, ...linked.publicFiles],
-        publicArtifacts,
+        readme: relativePath,
+        entrypoint: relativePath,
+        contractFiles: [relativePath],
+        publicArtifacts: [],
+        dependencies: [],
+        dependencyLinks: [],
         contractScope,
         metadata: frontmatter,
       });
       continue;
     }
 
-    if (contractScope !== "internal") {
+    if (contractScope !== "public" && contractScope !== "internal") {
       diagnostics.push({
         severity: "warning",
         code: "unknown_contract_scope",
-        message: `Unknown contract_scope '${contractScope}'. Expected 'boundary' or 'internal'.`,
-        path: relativeReadme,
+        message: `Unknown contract_scope '${contractScope}'. Expected 'boundary', 'public', or 'internal'.`,
+        path: relativePath,
       });
     }
   }
 
   diagnostics.push(...findDuplicateBoundaryNames(boundaries));
 
+  for (const record of records) {
+    if (!record.frontmatter || !record.contractScope || record.contractScope === "boundary") {
+      continue;
+    }
+
+    const owner = findBoundaryForPath(boundaries, record.relativePath);
+    if (owner) {
+      const contract = contractsByPath.get(record.relativePath);
+      if (contract) {
+        contract.boundary = owner.name;
+      }
+    }
+  }
+
+  for (const boundary of boundaries) {
+    const record = records.find((item) => item.relativePath === boundary.readme);
+    if (!record) {
+      continue;
+    }
+
+    const linkedContracts = await collectLinkedContractDocs({
+      workspace,
+      boundary,
+      boundaryRoot: record.rootPath,
+      documentPath: record.absolutePath,
+      documentContent: record.content,
+      contractsByPath,
+      diagnostics,
+    });
+    const publicArtifacts = await collectPublicArtifacts({
+      workspace,
+      boundaryRoot: record.rootPath,
+      documentPath: record.absolutePath,
+      documentContent: record.content,
+      frontmatter: record.frontmatter,
+      diagnostics,
+    });
+
+    boundary.contractFiles = [boundary.readme, ...linkedContracts.publicFiles];
+    boundary.publicArtifacts = publicArtifacts;
+  }
+
+  for (const boundary of boundaries) {
+    const record = records.find((item) => item.relativePath === boundary.readme);
+    if (!record) {
+      continue;
+    }
+
+    const dependencyResult = await collectBoundaryDependencies({
+      workspace,
+      boundary,
+      boundaries,
+      documentPath: record.absolutePath,
+      documentContent: record.content,
+      diagnostics,
+    });
+    boundary.dependencies = dependencyResult.dependencies;
+    boundary.dependencyLinks = dependencyResult.links;
+  }
+
   if (boundaries.length === 0) {
     diagnostics.push({
       severity: "warning",
       code: "no_boundaries_found",
-      message: "No README.md files declared contract_scope: boundary.",
+      message: "No Markdown documents declared contract_scope: boundary.",
       path: ".",
     });
   }
@@ -137,30 +228,35 @@ export async function scanBoundaryContracts(workspace, readmes) {
     schemaVersion: SCHEMA_VERSION,
     workspace: normalizePath(workspace),
     boundaries,
-    contracts,
+    contracts: [...contractsByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
     diagnostics,
   };
 }
 
+function addContract(contractsByPath, contract) {
+  const existing = contractsByPath.get(contract.path);
+  contractsByPath.set(contract.path, existing ? { ...existing, ...contract, boundary: contract.boundary ?? existing.boundary } : contract);
+}
+
 async function collectLinkedContractDocs({
   workspace,
+  boundary,
   boundaryRoot,
-  readmePath,
-  readmeContent,
-  boundaryName,
+  documentPath,
+  documentContent,
+  contractsByPath,
   diagnostics,
 }) {
   const publicFiles = [];
-  const contracts = [];
-  const seen = new Set([toWorkspacePath(workspace, readmePath)]);
-  const targets = extractMarkdownLinkTargets(readmeContent);
+  const seen = new Set([toWorkspacePath(workspace, documentPath)]);
+  const targets = extractMarkdownLinkTargetsFromSections(documentContent, CONTRACT_DOCUMENT_SECTION_HEADINGS);
 
   for (const target of targets) {
     if (!isLocalMarkdownTarget(target)) {
       continue;
     }
 
-    const targetPath = path.resolve(path.dirname(readmePath), stripMarkdownTargetSuffix(target));
+    const targetPath = path.resolve(path.dirname(documentPath), stripMarkdownTargetSuffix(target));
     const relativeTarget = toWorkspacePath(workspace, targetPath);
 
     if (seen.has(relativeTarget)) {
@@ -172,7 +268,7 @@ async function collectLinkedContractDocs({
       diagnostics.push({
         severity: "error",
         code: "contract_doc_outside_boundary",
-        message: "Boundary README links to a contract document outside its boundary root.",
+        message: "Boundary contract document sections may only link contract documents inside the boundary root.",
         path: relativeTarget,
       });
       continue;
@@ -185,7 +281,7 @@ async function collectLinkedContractDocs({
       diagnostics.push({
         severity: "error",
         code: "contract_doc_missing",
-        message: "Boundary README links to a missing contract document.",
+        message: "Boundary contract document section links to a missing contract document.",
         path: relativeTarget,
       });
       continue;
@@ -204,14 +300,15 @@ async function collectLinkedContractDocs({
       continue;
     }
 
-    contracts.push({
+    const contract = {
       contractScope,
       name: typeof frontmatter.name === "string" ? frontmatter.name : null,
-      boundary: boundaryName,
+      boundary: boundary.name,
       root: toWorkspacePath(workspace, path.dirname(targetPath)),
       path: relativeTarget,
       metadata: frontmatter,
-    });
+    };
+    addContract(contractsByPath, contract);
 
     if (contractScope === "public") {
       publicFiles.push(relativeTarget);
@@ -229,52 +326,32 @@ async function collectLinkedContractDocs({
   }
 
   publicFiles.sort((left, right) => left.localeCompare(right));
-  return { publicFiles, contracts };
+  return { publicFiles };
 }
 
 async function collectPublicArtifacts({
   workspace,
   boundaryRoot,
-  readmePath,
+  documentPath,
+  documentContent,
   frontmatter,
   diagnostics,
 }) {
   const publicArtifacts = [];
   const seen = new Set();
-  const entries = frontmatter?.[PUBLIC_ARTIFACTS_KEY];
-
-  if (entries === undefined) {
-    return publicArtifacts;
-  }
-
-  if (!Array.isArray(entries)) {
-    diagnostics.push({
-      severity: "error",
-      code: "public_artifacts_invalid",
-      message: "Boundary README public_artifacts must be a frontmatter list of workspace-local files.",
-      path: toWorkspacePath(workspace, readmePath),
-    });
-    return publicArtifacts;
-  }
+  const entries = [
+    ...frontmatterPublicArtifacts(frontmatter, workspace, documentPath, diagnostics),
+    ...extractMarkdownLinkTargetsFromSections(documentContent, PUBLIC_ARTIFACT_SECTION_HEADINGS),
+  ];
 
   for (const entry of entries) {
-    if (typeof entry !== "string" || !entry.trim()) {
-      diagnostics.push({
-        severity: "error",
-        code: "public_artifact_invalid",
-        message: "public_artifacts entries must be non-empty relative file paths.",
-        path: toWorkspacePath(workspace, readmePath),
-      });
-      continue;
-    }
-
     const target = stripMarkdownTargetSuffix(entry.trim());
     if (!isLocalArtifactTarget(target)) {
       diagnostics.push({
         severity: "error",
         code: "public_artifact_invalid",
-        message: "public_artifacts entries must be relative file paths, not URLs, anchors, or absolute paths.",
-        path: toWorkspacePath(workspace, readmePath),
+        message: "Public artifact entries must be relative file paths, not URLs, anchors, or absolute paths.",
+        path: toWorkspacePath(workspace, documentPath),
       });
       continue;
     }
@@ -283,13 +360,13 @@ async function collectPublicArtifacts({
       diagnostics.push({
         severity: "error",
         code: "public_artifact_markdown",
-        message: "Markdown contract documents must be linked from the README and declare contract_scope instead of using public_artifacts.",
-        path: toWorkspacePath(workspace, readmePath),
+        message: "Markdown contract documents must be listed in contract document sections and declare contract_scope instead of being public artifacts.",
+        path: toWorkspacePath(workspace, documentPath),
       });
       continue;
     }
 
-    const targetPath = path.resolve(path.dirname(readmePath), target);
+    const targetPath = path.resolve(path.dirname(documentPath), target);
     const relativeTarget = toWorkspacePath(workspace, targetPath);
 
     if (seen.has(relativeTarget)) {
@@ -301,7 +378,7 @@ async function collectPublicArtifacts({
       diagnostics.push({
         severity: "error",
         code: "public_artifact_outside_boundary",
-        message: "public_artifacts entries must stay inside the boundary root.",
+        message: "Public artifacts must stay inside the boundary root.",
         path: relativeTarget,
       });
       continue;
@@ -314,7 +391,7 @@ async function collectPublicArtifacts({
       diagnostics.push({
         severity: "error",
         code: "public_artifact_missing",
-        message: "public_artifacts entry points to a missing file.",
+        message: "Public artifact entry points to a missing file.",
         path: relativeTarget,
       });
       continue;
@@ -324,7 +401,7 @@ async function collectPublicArtifacts({
       diagnostics.push({
         severity: "error",
         code: "public_artifact_not_file",
-        message: "public_artifacts entries must point to files.",
+        message: "Public artifacts must point to files.",
         path: relativeTarget,
       });
       continue;
@@ -335,6 +412,143 @@ async function collectPublicArtifacts({
 
   publicArtifacts.sort((left, right) => left.localeCompare(right));
   return publicArtifacts;
+}
+
+function frontmatterPublicArtifacts(frontmatter, workspace, documentPath, diagnostics) {
+  const entries = frontmatter?.[PUBLIC_ARTIFACTS_KEY];
+
+  if (entries === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(entries)) {
+    diagnostics.push({
+      severity: "error",
+      code: "public_artifacts_invalid",
+      message: "Boundary contract document public_artifacts must be a frontmatter list of workspace-local files.",
+      path: toWorkspacePath(workspace, documentPath),
+    });
+    return [];
+  }
+
+  const valid = [];
+  for (const entry of entries) {
+    if (typeof entry !== "string" || !entry.trim()) {
+      diagnostics.push({
+        severity: "error",
+        code: "public_artifact_invalid",
+        message: "public_artifacts entries must be non-empty relative file paths.",
+        path: toWorkspacePath(workspace, documentPath),
+      });
+      continue;
+    }
+    valid.push(entry);
+  }
+  return valid;
+}
+
+async function collectBoundaryDependencies({
+  workspace,
+  boundary,
+  boundaries,
+  documentPath,
+  documentContent,
+  diagnostics,
+}) {
+  const dependencyNames = new Set();
+  const links = [];
+  const seenTargets = new Set();
+  const targets = extractMarkdownLinkTargetsFromSections(documentContent, EXTERNAL_CONTRACT_SECTION_HEADINGS);
+
+  for (const target of targets) {
+    if (!isLocalMarkdownTarget(target)) {
+      continue;
+    }
+
+    const targetPath = path.resolve(path.dirname(documentPath), stripMarkdownTargetSuffix(target));
+    const relativeTarget = toWorkspacePath(workspace, targetPath);
+
+    if (seenTargets.has(relativeTarget)) {
+      continue;
+    }
+    seenTargets.add(relativeTarget);
+
+    let stats;
+    try {
+      stats = await fs.stat(targetPath);
+    } catch {
+      diagnostics.push({
+        severity: "error",
+        code: "boundary_dependency_missing",
+        message: "External contract section links to a missing contract document.",
+        path: relativeTarget,
+      });
+      continue;
+    }
+
+    if (!stats.isFile()) {
+      diagnostics.push({
+        severity: "error",
+        code: "boundary_dependency_not_file",
+        message: "External contract section must link to contract document files.",
+        path: relativeTarget,
+      });
+      continue;
+    }
+
+    const targetBoundary = findBoundaryForPublicTarget(boundaries, relativeTarget);
+    if (!targetBoundary) {
+      diagnostics.push({
+        severity: "error",
+        code: "boundary_dependency_unknown",
+        message: "External contract section links to a document that is not another boundary entrypoint or public contract document.",
+        path: relativeTarget,
+      });
+      continue;
+    }
+
+    if (targetBoundary.name === boundary.name) {
+      diagnostics.push({
+        severity: "warning",
+        code: "boundary_dependency_self",
+        message: "External contract section links to its own boundary; self dependency is ignored.",
+        path: relativeTarget,
+      });
+      continue;
+    }
+
+    if (!targetBoundary.name) {
+      continue;
+    }
+
+    dependencyNames.add(targetBoundary.name);
+    links.push({ boundary: targetBoundary.name, path: relativeTarget });
+  }
+
+  return {
+    dependencies: [...dependencyNames].sort((left, right) => left.localeCompare(right)),
+    links: links.sort((left, right) => left.boundary.localeCompare(right.boundary) || left.path.localeCompare(right.path)),
+  };
+}
+
+function findBoundaryForPublicTarget(boundaries, relativeTarget) {
+  return boundaries
+    .filter((boundary) => isSameOrChildPath(boundary.root, relativeTarget))
+    .sort((left, right) => right.root.length - left.root.length)
+    .find((boundary) => readableFilesForBoundary(boundary).includes(relativeTarget)) ?? null;
+}
+
+function findBoundaryForPath(boundaries, relativePath) {
+  return boundaries
+    .filter((boundary) => isSameOrChildPath(boundary.root, relativePath))
+    .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
+}
+
+function readableFilesForBoundary(boundary) {
+  return [...new Set([
+    ...(Array.isArray(boundary.contractFiles) && boundary.contractFiles.length > 0 ? boundary.contractFiles : [boundary.readme]),
+    ...(Array.isArray(boundary.publicArtifacts) ? boundary.publicArtifacts : []),
+  ])];
 }
 
 function extractMarkdownLinkTargets(content) {
@@ -355,6 +569,62 @@ function extractMarkdownLinkTargets(content) {
   }
 
   return targets;
+}
+
+function extractMarkdownLinkTargetsFromSections(content, headings) {
+  const targets = [];
+  const lines = content.split(/\r?\n/);
+  let activeLevel = null;
+  let activeContent = [];
+
+  function flush() {
+    if (activeLevel === null) {
+      return;
+    }
+    targets.push(...extractMarkdownLinkTargets(activeContent.join("\n")));
+    activeContent = [];
+  }
+
+  for (const line of lines) {
+    const heading = parseAtxHeading(line);
+    if (heading) {
+      if (activeLevel !== null && heading.level <= activeLevel) {
+        flush();
+        activeLevel = null;
+      }
+
+      if (activeLevel === null && headings.has(normalizeHeadingText(heading.text))) {
+        activeLevel = heading.level;
+        activeContent = [];
+      } else if (activeLevel !== null) {
+        activeContent.push(line);
+      }
+      continue;
+    }
+
+    if (activeLevel !== null) {
+      activeContent.push(line);
+    }
+  }
+
+  flush();
+  return targets;
+}
+
+function parseAtxHeading(line) {
+  const match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    level: match[1].length,
+    text: match[2],
+  };
+}
+
+function normalizeHeadingText(value) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeMarkdownLinkTarget(rawTarget) {
@@ -527,6 +797,11 @@ export function toWorkspacePath(workspace, absolutePath) {
 export function isInside(root, target) {
   const relative = path.relative(path.resolve(root), path.resolve(target));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+export function isSameOrChildPath(parent, child) {
+  const relative = path.posix.relative(normalizePath(parent), normalizePath(child));
+  return relative === "" || (!relative.startsWith("..") && !path.posix.isAbsolute(relative));
 }
 
 export function normalizePath(value) {

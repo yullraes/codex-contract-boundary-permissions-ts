@@ -3,22 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Codex plugin bundle for contract-boundary permission automation.",
+  "description": "Markdown contract-boundary based Codex permission automation.",
   "scripts": {
-    "analyze:imports": "node src/analyze-js-ts-imports.ts",
     "generate:permissions": "node src/generate-codex-permissions.ts",
     "generate:rules": "node src/generate-codex-rules.ts",
     "scan:boundaries": "node scripts/scan-boundaries.mjs",
     "refresh:generated": "node scripts/refresh-generated.mjs",
     "check:generated": "node scripts/refresh-generated.mjs --check",
     "validate:permissions": "node src/validate-codex-permissions.ts",
-    "render:stop-hook-config": "node scripts/render-stop-hook-config.mjs",
-    "hook:contract-boundary-stop": "node hooks/stop-checks.mjs"
+    "render:pre-commit-hook": "node scripts/render-pre-commit-hook.mjs",
+    "hook:contract-boundary-pre-commit": "node hooks/pre-commit.mjs"
   },
   "engines": {
     "node": ">=22.6"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3"
   }
 }

@@ -3,13 +3,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { findReadmes, scanBoundaryContracts } from "../src/boundary-contracts.mjs";
+import { findMarkdownDocuments, scanBoundaryContracts } from "../src/boundary-contracts.mjs";
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const workspace = path.resolve(args.workspace ?? process.cwd());
-  const readmes = await findReadmes(workspace);
-  const scan = await scanBoundaryContracts(workspace, readmes);
+  const documents = await findMarkdownDocuments(workspace);
+  const scan = await scanBoundaryContracts(workspace, documents);
   const json = JSON.stringify(scan, null, args.pretty ? 2 : 0);
 
   if (args.out) {
@@ -72,9 +72,12 @@ function parseArgs(argv) {
 function printHelp() {
   process.stdout.write(`Usage: node scripts/scan-boundaries.mjs [workspace] [--out path] [--pretty]
 
-Scans README.md frontmatter and emits contract boundary metadata.
-Boundary README links to contract_scope: public Markdown documents are emitted as contractFiles.
-Boundary README public_artifacts entries are emitted as publicArtifacts.
+Scans Markdown frontmatter and emits contract boundary metadata.
+
+Contract participation is opt-in:
+- Any .md/.mdx document with contract_scope: boundary is a boundary entrypoint.
+- contract_scope: public/internal documents participate when linked from boundary contract sections.
+- External boundary dependencies are read from body links under External Contracts / Dependencies sections.
 
 Frontmatter:
   ---

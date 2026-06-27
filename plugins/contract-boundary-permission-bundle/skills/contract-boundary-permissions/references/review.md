@@ -7,18 +7,19 @@ Read this only when reviewing permission setup or config changes.
 Lead with findings.
 
 - `.codex/config.toml` preserves existing model, MCP, hooks, and user-defined settings.
-- Generated permission profile names match graph-derived names.
+- Generated permission profile names match contract graph-derived names.
 - Only owner boundaries are writable.
 - External boundary roots are denied by default.
 - No external path is reopened except direct dependency `contractFiles` and `publicArtifacts`.
+- Direct dependencies come from boundary document body links, not hidden frontmatter lists.
 - `.codex` and sensitive globs are not loosened.
 - No `danger-full-access` posture is introduced.
 
 ## Out Of Scope
 
-- Contract document freshness is handled by `scan:boundaries` diagnostics and the paired `Stop` hook.
-- Generated metadata freshness is handled by `check:generated` through the paired hook.
-- Public entrypoint and deep import policy belong to the target project's lint rule.
+- Public entrypoint and deep import policy belong to the target project's lint/review/CI.
+- Ongoing contract document updates during implementation sessions belong to the target project's implementation-agent prompt, review process, hook output, or check scripts.
+- Hook handles generated metadata freshness in fail-only mode.
 
 ## Suggested Verification
 
@@ -26,4 +27,4 @@ Lead with findings.
 node <workspace>/.codex/tools/contract-boundary-permissions/src/validate-codex-permissions.ts <workspace> --graph <workspace>/.codex/dependency-graph.json --config <workspace>/.codex/config.toml
 ```
 
-If the target workspace added package scripts that point at `.codex/tools/contract-boundary-permissions`, `npm run validate:permissions -- ...` is equivalent.
+
